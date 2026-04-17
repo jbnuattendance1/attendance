@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR 출석 시스템 (관리자)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f4f4f9; }
+    .container { max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    h1 { color: #333; margin-bottom: 30px; }
+    
+    .tabs { display: flex; justify-content: center; margin-bottom: 20px; }
+    .tab-button { background-color: #e9ecef; border: none; padding: 12px 20px; cursor: pointer; font-size: 16px; flex: 1; font-weight: bold; border-radius: 5px 5px 0 0; margin: 0 2px;}
+    .tab-button.active { background-color: #007bff; color: white; }
+    .tab-content { display: none; padding: 30px 20px; border: 1px solid #ddd; border-radius: 0 0 5px 5px; background: #fff; }
+    .tab-content.active { display: block; }
+    
+    #qrcode { margin: 20px auto; width: 250px; height: 250px; padding: 15px; background: white; }
+    input[type="tel"], input[type="password"], input[type="number"] { padding: 12px; width: 250px; font-size: 16px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; }
+    button { cursor: pointer; }
+    button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
+    button.action-btn { background-color: #28a745; color: white; padding: 12px 20px; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; }
+    button.action-btn:hover { background-color: #218838; }
+    
+    #manualResult { margin-top: 20px; padding: 15px; border-radius: 5px; display: none; font-weight: bold; }
+    .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .back-btn { margin-top: 30px; padding: 10px 20px; background-color: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block;}
+  
+    #loginOverlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #f4f4f9; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; z-index: 9999;
+    }
+    #loginOverlay h2 { color: #333; }
+    #loginOverlay input { text-align: center; }
+    #loginBtn { background-color: #007bff; color: white; padding: 12px 30px; font-size: 16px; border: none; border-radius: 5px; }
+    #loginBtn:hover:not(:disabled) { background-color: #0056b3; }
+    #mainContent { display: none; }
+  </style>
+</head>
+<body>
+  <div id="loginOverlay">
+    <h2>👨‍🏫 관리자 로그인</h2>
+    
+    <div id="adminCaptchaContainer" style="display: none; background: #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 15px; width: 280px;">
+      <p style="color: #856404; font-weight: bold; margin-top: 0;">🔒 보안 인증 (5회 이상 실패)</p>
+      <span id="adminCaptchaQuestion" style="font-size: 18px; font-weight: bold;"></span> =
+      <input type="number" id="adminCaptchaInput" style="width: 60px; padding: 8px; margin-right: 5px; margin-bottom: 0;" onkeypress="if(event.keyCode==13) verifyAdminCaptcha()">
+      <button onclick="verifyAdminCaptcha()" style="background-color: #6c757d; color: white; border: none; padding: 8px 15px; font-size: 14px; border-radius: 4px;">확인</button>
+    </div>
+
+    <input type="password" id="adminPassword" placeholder="비밀번호 입력" onkeypress="if(event.keyCode==13) checkPassword()">
+    <button id="loginBtn" onclick="checkPassword()">접속하기</button>
+  </div>
+  
+  <div id="mainContent">
+    <div class="container">
+      <h1>👨‍🏫 출석 관리자 대시보드</h1>
+      
+      <div class="tabs">
+        <button class="tab-button active" onclick="openTab('generate')">학생용 QR 코드</button>
+        <button class="tab-button" onclick="openTab('manual')">수동 출석 처리</button>
+      </div>
+      
+      <div id="generate" class="tab-content active">
+        <h2>화면에 이 QR을 띄워주세요</h2>
+        <div id="qrcode"></div>
+      </div>
+      
+      <div id="manual" class="tab-content">
+        <h2>학생 번호로 직접 출석체크</h2>
+        
+        <div id="manualCaptchaContainer" style="display: none; background: #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 15px; max-width: 300px; margin-left: auto; margin-right: auto;">
+          <p style="color: #856404; font-weight: bold; margin-top: 0; font-size: 14px;">🔒 비정상 시도 감지 (5회 실패)</p>
+          <span id="manualCaptchaQuestion" style="font-size: 18px; font-weight: bold;"></span> =
+          <input type="number" id="manualCaptchaInput" style="width: 60px; padding: 8px; margin-right: 5px; margin-bottom: 0;" onkeypress="if(event.keyCode==13) verifyManualCaptcha()">
+          <button onclick="verifyManualCaptcha()" style="background-color: #6c757d; color: white; border: none; padding: 8px 15px; font-size: 14px; border-radius: 4px;">확인</button>
+        </div>
+
+        <input type="tel" id="manualPhoneInput" placeholder="01012345678 (숫자만)" onkeypress="if(event.keyCode==13) manualAttendance()">
+        <br><button id="manualActionBtn" class="action-btn" onclick="manualAttendance()">출석 처리하기</button>
+        <div id="manualResult"></div>
+      </div>
+      
+      <a href="index.html" class="back-btn">돌아가기 (로그아웃)</a>
+    </div>
+  </div> 
+  
+  <script>
+    // 🔥 앱스스크립트 '웹 앱 URL' 입력 🔥
+    const GAS_API_URL = "https://script.google.com/a/macros/jbnu.hs.kr/s/AKfycbxkMSzCuZAPh2_9hswd7hGCigSzUoxYQfp-PFbilYe0nodNLTUDL3F7qBj_KO_XLZFG1w/exec"; 
+    
+    const ADMIN_FAIL_KEY = 'adminLoginFailCount';
+    const MANUAL_FAIL_KEY = 'adminManualFailCount'; 
+    let currentAdminPassword = ""; 
+    
+    let adminCaptchaAnswer = 0; 
+    let isAdminCaptchaPassed = false; 
+
+    let manualCaptchaAnswer = 0; 
+    let isManualCaptchaPassed = false; 
+
+    async function apiCall(data) {
+      try {
+        const response = await fetch(GAS_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(data),
+          redirect: "follow"
+        });
+        return await response.json();
+      } catch (error) { 
+        console.error("Fetch 에러 상세:", error); // 디버깅을 위해 추가
+        throw error; 
+      }
+    }
+  
+    window.onload = function() {
+      checkAdminFailCount(); 
+      let studentPageUrl = window.location.href.replace("indexmanager.html", "index.html");
+      const today = new Date();
+      const dateString = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      
+      // QR 생성은 편의상 프론트에서 유지하되, 서버 검증은 백엔드 시트에 있는 값과 비교함
+      const secretKey = "jbnuattendance"; 
+      const tokenRaw = dateString + "_" + secretKey;
+      new QRCode(document.getElementById("qrcode"), { text: studentPageUrl + "?token=" + btoa(tokenRaw), width: 250, height: 250 });
+    };
+
+    // -------------------------------------------------------------
+    // 🔐 로그인 보안 로직
+    // -------------------------------------------------------------
+    function checkAdminFailCount() {
+      let failCount = parseInt(localStorage.getItem(ADMIN_FAIL_KEY)) || 0;
+      if (failCount >= 5 && !isAdminCaptchaPassed) showAdminCaptcha();
+    }
+
+    function showAdminCaptcha() {
+      document.getElementById('adminCaptchaContainer').style.display = 'block';
+      document.getElementById('loginBtn').disabled = true;
+      document.getElementById('adminPassword').disabled = true;
+      
+      let num1 = Math.floor(Math.random() * 9) + 1;
+      let num2 = Math.floor(Math.random() * 9) + 1;
+      adminCaptchaAnswer = num1 + num2;
+      document.getElementById('adminCaptchaQuestion').textContent = `${num1} + ${num2}`;
+    }
+
+    function verifyAdminCaptcha() {
+      let userAnswer = parseInt(document.getElementById('adminCaptchaInput').value);
+      if (userAnswer === adminCaptchaAnswer) {
+        alert("인증 완료! 다시 접속을 시도해주세요.");
+        isAdminCaptchaPassed = true; 
+        document.getElementById('adminCaptchaContainer').style.display = 'none';
+        document.getElementById('adminCaptchaInput').value = '';
+        document.getElementById('loginBtn').disabled = false;
+        document.getElementById('adminPassword').disabled = false;
+        document.getElementById('adminPassword').focus();
+      } else {
+        alert("정답이 틀렸습니다."); showAdminCaptcha(); 
+      }
+    }
+  
+    async function checkPassword() {
+      let failCount = parseInt(localStorage.getItem(ADMIN_FAIL_KEY)) || 0;
+      if (failCount >= 5 && !isAdminCaptchaPassed) { 
+        alert("보안 인증을 먼저 완료해주세요."); showAdminCaptcha(); return; 
+      }
+
+      const input = document.getElementById('adminPassword').value;
+      const btn = document.getElementById('loginBtn');
+      btn.innerText = "확인 중..."; btn.disabled = true;
+
+      try {
+        const res = await apiCall({ action: "verifyAdmin", password: input });
+
+        if (res.success) {
+          localStorage.setItem(ADMIN_FAIL_KEY, '0'); 
+          isAdminCaptchaPassed = false;
+          currentAdminPassword = input; 
+          document.getElementById('loginOverlay').style.display = 'none';
+          document.getElementById('mainContent').style.display = 'block';
+        } else {
+          failCount++;
+          localStorage.setItem(ADMIN_FAIL_KEY, failCount);
+          isAdminCaptchaPassed = false; 
+          alert(res.message + ` (실패: ${failCount}회)`); 
+          document.getElementById('adminPassword').value = '';
+          checkAdminFailCount(); 
+        }
+      } catch (e) { alert("서버와 통신할 수 없습니다."); } 
+      finally { btn.innerText = "접속하기"; btn.disabled = false; }
+    }
+
+    // -------------------------------------------------------------
+    // 탭 이동 로직
+    // -------------------------------------------------------------
+    function openTab(tabName) {
+      document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".tab-button").forEach(el => el.classList.remove("active"));
+      document.getElementById(tabName).classList.add("active");
+      event.currentTarget.classList.add("active");
+      
+      if(tabName === 'manual') checkManualFailCount();
+    }
+  
+    // -------------------------------------------------------------
+    // 🛡 수동 출석 무작위 대입 방지 로직 
+    // -------------------------------------------------------------
+    function checkManualFailCount() {
+      let failCount = parseInt(localStorage.getItem(MANUAL_FAIL_KEY)) || 0;
+      if (failCount >= 5 && !isManualCaptchaPassed) showManualCaptcha();
+    }
+
+    function showManualCaptcha() {
+      document.getElementById('manualCaptchaContainer').style.display = 'block';
+      document.getElementById('manualActionBtn').disabled = true;
+      document.getElementById('manualPhoneInput').disabled = true;
+      
+      let num1 = Math.floor(Math.random() * 9) + 1;
+      let num2 = Math.floor(Math.random() * 9) + 1;
+      manualCaptchaAnswer = num1 + num2;
+      document.getElementById('manualCaptchaQuestion').textContent = `${num1} + ${num2}`;
+    }
+
+    function verifyManualCaptcha() {
+      let userAnswer = parseInt(document.getElementById('manualCaptchaInput').value);
+      if (userAnswer === manualCaptchaAnswer) {
+        alert("인증 완료! 번호를 다시 입력해주세요.");
+        isManualCaptchaPassed = true; 
+        document.getElementById('manualCaptchaContainer').style.display = 'none';
+        document.getElementById('manualCaptchaInput').value = '';
+        document.getElementById('manualActionBtn').disabled = false;
+        document.getElementById('manualPhoneInput').disabled = false;
+        document.getElementById('manualPhoneInput').focus();
+      } else {
+        alert("정답이 틀렸습니다."); showManualCaptcha(); 
+      }
+    }
+
+    async function manualAttendance() {
+      let failCount = parseInt(localStorage.getItem(MANUAL_FAIL_KEY)) || 0;
+      if (failCount >= 5 && !isManualCaptchaPassed) {
+        alert("비정상적인 시도가 감지되었습니다. 보안 인증을 해주세요.");
+        showManualCaptcha(); return;
+      }
+
+      const phoneInput = document.getElementById('manualPhoneInput');
+      const phone = phoneInput.value.replace(/-/g, '');
+      if (!phone) return alert("휴대폰 번호를 입력하세요.");
+      
+      const btn = document.getElementById('manualActionBtn');
+      btn.innerText = "처리 중..."; btn.disabled = true;
+  
+      try {
+        const res = await apiCall({ 
+          action: "markAttendance", 
+          phoneNumber: phone,
+          adminPassword: currentAdminPassword 
+        });
+        
+        if (res.success) {
+          showResult(`✅ [${res.studentId}] ${res.name}학생 출석 완료 (${res.time})`, true);
+          phoneInput.value = ''; 
+          localStorage.setItem(MANUAL_FAIL_KEY, '0');
+          isManualCaptchaPassed = false;
+        } else {
+          showResult(res.message, false);
+          failCount++;
+          localStorage.setItem(MANUAL_FAIL_KEY, failCount);
+          isManualCaptchaPassed = false; 
+          checkManualFailCount();
+        }
+      } catch (e) { showResult("통신 오류가 발생했습니다.", false); } 
+      finally { btn.innerText = "출석 처리하기"; btn.disabled = false; }
+    }
+  
+    function showResult(msg, isSuccess) {
+      const div = document.getElementById('manualResult');
+      div.textContent = msg; div.style.display = "block";
+      div.className = isSuccess ? "success" : "error";
+      setTimeout(() => div.style.display = "none", 5000); 
+    }
+  </script>
+</body>
+</html>
